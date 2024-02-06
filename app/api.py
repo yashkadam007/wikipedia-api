@@ -2,17 +2,22 @@ from flask import Flask, request, jsonify, json
 from flask_restful import Resource, Api
 from word_counter import get_top_words
 from models import db, SearchHistory
+from flask_caching import Cache
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///wikipedia_search.db'  # SQLite database file
 db.init_app(app)
 api = Api(app)
 
+# Configure Flask-Caching for improving performance
+cache = Cache(app, config={'CACHE_TYPE': 'simple'})
+
 class HelloWorld(Resource):
     def get(self):
         return {'hello': 'world'}
 
 class WordFrequency(Resource):
+    @cache.cached(timeout=300, make_cache_key=lambda *args, **kwargs: f"word_frequency_{str(hash(frozenset(request.args.items())))}")
     def get(self):
         topic = request.args.get('topic')
         n = int(request.args.get('n', 10))
