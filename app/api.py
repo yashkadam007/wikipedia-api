@@ -17,27 +17,36 @@ class HelloWorld(Resource):
         return {'hello': 'world'}
 
 class WordFrequency(Resource):
+    #cache to handle same query
     @cache.cached(timeout=300, make_cache_key=lambda *args, **kwargs: f"word_frequency_{str(hash(frozenset(request.args.items())))}")
     def get(self):
-        topic = request.args.get('topic')
-        n = int(request.args.get('n', 10))
+        try:
+            topic = request.args.get('topic')
+            n = request.args.get('n', 10)
 
-        # Get word frequency result
-        result = get_top_words(topic, n)
+            # Check if n is not present or negative
+            if n is None or int(n) < 1:
+                raise ValueError("Invalid value for 'n'. Please provide a non-negative integer.")
+            n = int(n)
+            # Get word frequency result
+            result = get_top_words(topic, n)
 
-        # Save the search history in the database
-        status = "success" if "top_n_words" in result else "error"
+            status = "success" if "top_n_words" in result else "error"
+            
+            # Save the search history in the database
+            search_history_entry = SearchHistory(
+                topic=topic,
+                result=jsonify(result).data.decode('utf-8'),
+                status=status,
+            )
 
-        search_history_entry = SearchHistory(
-            topic=topic,
-            result=jsonify(result).data.decode('utf-8'),
-            status=status,
-        )
+            db.session.add(search_history_entry)
+            db.session.commit()
 
-        db.session.add(search_history_entry)
-        db.session.commit()
-
-        return jsonify(result)
+            return jsonify(result)
+        
+        except ValueError:
+            return {"status": "error", "message": "Invalid value for n. provide non negative integer"}
 
 class WordFrequencySearchHistory(Resource):
     def get(self):
@@ -63,11 +72,16 @@ class WordFrequencySearchHistory(Resource):
             response_data.append(entry_data)
 
         return jsonify(response_data)  
+
+# error handling for invalid routes
+@app.errorhandler(404)
+def not_found(e):
+    return {"status": "error", "message": "Invalid route. Please check the URL."}, 404
+
 #apis
 api.add_resource(HelloWorld, '/')
 api.add_resource(WordFrequency, '/api/word-frequency')
 api.add_resource(WordFrequencySearchHistory, '/api/search-history')
-
 
 if __name__ == '__main__':
     with app.app_context():
